@@ -30,7 +30,7 @@ public class TokenManager {
     }
 
     public boolean nextTwoTokensMatch(Token.TokenTypes first, Token.TokenTypes second) {
-	    if((!tokens.isEmpty() && tokens.get(0).getType() == first) == (!tokens.isEmpty() && tokens.get(1).getType() == second)) {
+	    if((!tokens.isEmpty() && tokens.get(0).getType() == first) && (!tokens.isEmpty() && tokens.get(1).getType() == second)) {
             return true;
         }
         return false;
