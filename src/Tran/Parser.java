@@ -1,13 +1,11 @@
 package Tran;
 import AST.*;
 
+import java.beans.Expression;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/*      Questions
-* 1.
-* */
 
 public class Parser {
     private final TranNode top;
@@ -111,7 +109,7 @@ public class Parser {
 
         //ParameterVariableDeclarations
         var paramVariableDeclarations = ParseParameterVariableDeclarations();
-// methodHeadr.params = paramVariableDeclarations
+
 
         methodHeader.parameters = paramVariableDeclarations;
         //")"
@@ -137,7 +135,7 @@ public class Parser {
 
     //Around 10 lines
     //ParameterVariableDeclarations =  ParameterVariableDeclaration  ("," ParameterVariableDeclaration)*
-    //if token is returned then get both otherwise return optional empty                                ----Fix
+    //if token is returned then get both otherwise return optional empty
     private List<VariableDeclarationNode> ParseParameterVariableDeclarations() throws SyntaxErrorException {
         ArrayList<VariableDeclarationNode> newParam = new ArrayList<>();
         var checkParseParam = ParseParameterVariableDeclaration();
@@ -146,7 +144,9 @@ public class Parser {
             if(tokenManager.matchAndRemove(Token.TokenTypes.COMMA).isPresent()){
                 checkParseParam = ParseParameterVariableDeclaration();
             }
-            return newParam;
+            else{
+                return newParam;
+            }
         }
         return newParam;
     }
@@ -204,7 +204,7 @@ public class Parser {
         if(tokenManager.matchAndRemove(Token.TokenTypes.INDENT).isEmpty()){
             throw new SyntaxErrorException("Missing Indent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
         }
-        //( Constructor | MethodDeclaration | Member )*                                     --is this handling correct?
+        //( Constructor | MethodDeclaration | Member )*
         while(tokenManager.peek(0).get().getType() == Token.TokenTypes.WORD || tokenManager.peek(0).get().getType() == Token.TokenTypes.CONSTRUCT){
             if(tokenManager.peek(0).get().getType() == Token.TokenTypes.CONSTRUCT){ //peeking too much
                 classNode.constructors.add(ParseConstructor().get());
@@ -282,7 +282,9 @@ public class Parser {
         //MethodHeader
         Optional<MethodHeaderNode> methodHeader = ParseMethodHeader();
         if(methodHeader.isPresent()) {
-            methodDec.name = String.valueOf(methodHeader.get());
+            methodDec.name = methodHeader.get().name;
+            methodDec.parameters = methodHeader.get().parameters;
+            methodDec.returns = methodHeader.get().returns;
         }
         //methodDec.name = methodHeader.get().name;
 
@@ -294,6 +296,7 @@ public class Parser {
         Optional<MethodDeclarationNode> bodyStatement = ParseMethodBody();
         if(bodyStatement.isPresent()){
             methodDec.statements.addAll(bodyStatement.get().statements);
+            methodDec.locals.addAll(bodyStatement.get().locals);
         }
         return Optional.of(methodDec);
     }
@@ -310,14 +313,14 @@ public class Parser {
         Optional<VariableDeclarationNode> newVarDec = ParseVariableDeclarations();
         while (newVarDec.isPresent()) {
             methodDec.locals.add(newVarDec.get());
-            newVarDec = ParseVariableDeclarations();  // Keep parsing until no more variables are found
+            newVarDec = ParseVariableDeclarations();  //Keep parsing until no more variables are found
         }
 
         //Statement*                                                                                -- is this correct?
         Optional<StatementNode> methodStatement = ParseStatement();
         while (methodStatement.isPresent()) {
             methodDec.statements.add(methodStatement.get());
-            methodStatement = ParseStatement();  // Keep parsing until no more statements are found
+            methodStatement = ParseStatement();  //Keep parsing until no more statements are found
         }
         //DEDENT
         if(tokenManager.matchAndRemove(Token.TokenTypes.DEDENT).isEmpty()){
@@ -339,6 +342,7 @@ public class Parser {
         while(newStatement.isPresent()){
             //add to list of statements
             methodStatementList.add(newStatement.get());
+            newStatement = ParseStatement();
         }
         //DEDENT
         if(tokenManager.matchAndRemove(Token.TokenTypes.DEDENT).isEmpty()){
@@ -361,7 +365,8 @@ public class Parser {
             Optional<LoopNode> loopNode = ParseLoop();
             return Optional.of(loopNode.get());
         }
-        return Optional.empty();
+        //check for methodCall or assignment using disambiguate()
+        return disambiguate();
     }
 
     //Around 18 lines
@@ -374,33 +379,39 @@ public class Parser {
         }
 
         //BoolExpTerm
-        var presentBoolExpTerm = ParseBoolExpTerm();
+        Optional<ExpressionNode> presentBoolExpTerm = ParseBoolExpTerm();
         if(presentBoolExpTerm.isEmpty()){
             throw new SyntaxErrorException("If statements must have a BoolExpTerm", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
         }
+
         ifNode.condition = presentBoolExpTerm.get();
 
         //NEWLINE
         requireNewLine();
 
         //Statements
-        ArrayList<StatementNode> ifStatementsList = new ArrayList<>(); //StatementNode doesn't have a list feature
-        var ifStatements = ParseStatements();
-        while(!ifStatements.isEmpty()){
-            ifStatementsList.add(ifStatements.get(0));
-        }
-        ifNode.statements = ifStatementsList;
+        ifNode.statements = ParseStatements();
 
-        //("else" NEWLINE (Statement | Statements))?
+        //("else" NEWLINE (Statement | Statements)) ?
         if(tokenManager.matchAndRemove(Token.TokenTypes.ELSE).isPresent()){
             //NEWLINE
             requireNewLine();
+            //(Statement | Statements)
             ElseNode elseNode = new ElseNode();
-            elseNode.statements = ParseStatements(); // Parse statements for the else block
+            Optional<StatementNode> statement = ParseStatement();
+            if (statement.isPresent()) {
+                elseNode.statements = new ArrayList<>();
+                elseNode.statements.add(statement.get());
+            } else {
+                elseNode.statements = ParseStatements();
+            }
+
             ifNode.elseStatement = Optional.of(elseNode);
-        }else {
-            ifNode.elseStatement = Optional.empty();
+
+        }else{
+            return Optional.of(ifNode);
         }
+
         return Optional.of(ifNode);
     }
 
@@ -408,17 +419,31 @@ public class Parser {
     //Loop = "loop" (VariableReference "=" )?  ( BoolExpTerm ) NEWLINE Statements
     private Optional <LoopNode> ParseLoop() throws SyntaxErrorException {
         LoopNode loopNode = new LoopNode();
-        //"if"
+        //"loop"
         if(tokenManager.matchAndRemove(Token.TokenTypes.LOOP).isEmpty()){
             return Optional.empty();
         }
-        var newVarRef = ParseVariableReferenceNode();
-        if(newVarRef.isPresent()){
+
+        //if next two are word then assign
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.ASSIGN)){
+            Optional<VariableReferenceNode> newVarRef = ParseVariableReference();
+            if(newVarRef.isEmpty()){
+                throw new SyntaxErrorException("Expected a Variable Reference", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
             if(tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isEmpty()){
-                throw new SyntaxErrorException("Variable Reference Node must have an assignment", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                throw new SyntaxErrorException("Expected '=' after variable in loop assignment", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
             }
             loopNode.assignment = newVarRef;
         }
+
+        //BoolExpTerm
+        Optional<ExpressionNode> boolExpTerm = ParseBoolExpTerm();
+        if (boolExpTerm.isEmpty()) {
+            throw new SyntaxErrorException("Expected boolean expression in loop", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+        }
+
+        loopNode.expression = boolExpTerm.get();
+
         //NEWLINE
         requireNewLine();
 
@@ -428,14 +453,73 @@ public class Parser {
         return Optional.of(loopNode);
     }
 
+    //Around 30 lines
     //BoolExpTerm = MethodCallExpression | (Expression ( "==" | "!=" | "<=" | ">=" | ">" | "<" ) Expression) | VariableReference
-    private Optional <BooleanOpNode> ParseBoolExpTerm(){
-        BooleanOpNode boolExpTerm = new BooleanOpNode();
-        return Optional.of(boolExpTerm);
+    private Optional <ExpressionNode> ParseBoolExpTerm() throws SyntaxErrorException {
+        //MethodCallExpression
+        Optional<MethodCallExpressionNode> methodCall = ParseMethodCallExpression();
+        if (methodCall.isPresent()) {
+            return Optional.of(methodCall.get());
+        }
+
+        //Expression
+        Optional<ExpressionNode> boolExpLeft = ParseExpression();
+        if(boolExpLeft.isEmpty()){
+            return Optional.empty();
+        }
+
+        Optional <Token> peekType = tokenManager.peek(0);
+        if (peekType.isPresent()) {
+            //use switch cases statements to try all in the CompareNode class
+            Token.TokenTypes tokenType = peekType.get().getType();
+            CompareNode.CompareOperations op = null;
+            switch(tokenType){
+                //"=="
+                case EQUAL:
+                    op = CompareNode.CompareOperations.eq;
+                //"!="
+                case NOTEQUAL:
+                    op = CompareNode.CompareOperations.ne;
+                // "<="
+                case LESSTHANEQUAL:
+                    op = CompareNode.CompareOperations.le;
+                //">="
+                case GREATERTHANEQUAL:
+                    op = CompareNode.CompareOperations.ge;
+                //"<"
+                case LESSTHAN:
+                    op = CompareNode.CompareOperations.lt;
+                //">"
+                case GREATERTHAN:
+                    op = CompareNode.CompareOperations.gt;
+            }
+            if(op != null){
+                tokenManager.matchAndRemove(tokenType);
+                //Expression
+                var boolExpRight = ParseExpression();
+                if(boolExpRight.isEmpty()){
+                    throw new SyntaxErrorException("Expected right side of the expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                CompareNode compareNode = new CompareNode();
+                compareNode.op = op;
+                compareNode.left = boolExpLeft.get();
+                compareNode.right = boolExpRight.get();
+
+                return Optional.of(compareNode);
+            }
+        }
+
+        //VariableReference
+        var varRef = ParseVariableReference();
+        if (varRef.isPresent()) {
+            return Optional.of(varRef.get());
+        }
+
+        return Optional.empty();
     }
 
     //VariableReference = IDENTIFIER
-    private Optional <VariableReferenceNode> ParseVariableReferenceNode() throws SyntaxErrorException {
+    private Optional <VariableReferenceNode> ParseVariableReference() throws SyntaxErrorException {
         //IDENTIFIER
         VariableReferenceNode varRefNode = new VariableReferenceNode();
         var varRefToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
@@ -462,17 +546,20 @@ public class Parser {
     //VariableDeclarations =  IDENTIFIER VariableNameValue ("," VariableNameValue)* NEWLINE
     private Optional <VariableDeclarationNode> ParseVariableDeclarations() throws SyntaxErrorException {
         // IDENTIFIER
-        var typeToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
-        if (typeToken.isEmpty()) {
+        VariableDeclarationNode varDecNode = new VariableDeclarationNode();
+
+        var checkType = tokenManager.peek(0).get().getType();
+        if(!tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.WORD)){
+            //var tokenType = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
             return Optional.empty();
         }
-        VariableDeclarationNode varDecNode = new VariableDeclarationNode();
-        varDecNode.type = typeToken.get().getValue();  // Set type
+        varDecNode.type = tokenManager.peek(0).get().getValue();
 
         Optional<VariableDeclarationNode> varNameValue = ParseVariableNameValue();
         if (varNameValue.isEmpty()) {
-            throw new SyntaxErrorException("Expected variable name after type", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            return Optional.empty();
         }
+
 
         //name and initializer
         varDecNode.name = varNameValue.get().name;
@@ -492,16 +579,24 @@ public class Parser {
 
     //VariableNameValue = IDENTIFIER ( "=" Expression)?
     private Optional <VariableDeclarationNode> ParseVariableNameValue() throws SyntaxErrorException {
-        VariableDeclarationNode varDecNode= new VariableDeclarationNode();
-        var varDecToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
-        if(varDecToken.isEmpty()){
+        VariableDeclarationNode varDecNode = new VariableDeclarationNode();
+        var varDecType = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+        if(varDecType.isEmpty()){
             return Optional.empty();
         }
-        varDecNode.name = varDecToken.get().getValue();
+        varDecNode.type = varDecType.get().getValue();
+
+        var varDecName = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+        if(varDecName.isEmpty()){
+            return Optional.empty();
+        }
+        varDecNode.name = varDecName.get().getValue();
         if (tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isPresent()) {
-            var expression = ParseExpression();
+            //var expression = ParseExpression();
+            Optional<ExpressionNode> expression = ParseExpression();
             if (expression.isEmpty()) {
-                throw new SyntaxErrorException("Expected expression after '=' in variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                //throw new SyntaxErrorException("Expected expression after '=' in variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                return Optional.empty();
             }
             varDecNode.initializer = expression;
         }
@@ -511,21 +606,121 @@ public class Parser {
     //Expression = Term ( ("+"|"-") Term )*
     private Optional <ExpressionNode> ParseExpression() throws SyntaxErrorException {
         //ExpressionNode expressionNode = new ExpressionNode();
-        ExpressionNode expressionNode = null;
-        return Optional.of(expressionNode);
+        //ExpressionNode expressionNode = null;
+        var expNode = ParseVariableReference().get();
+        return Optional.of(expNode);
     }
 
-}
-/*
+                                                    /* Parser 3*/
 
-*/
+    //MethodCallExpression =  (IDENTIFIER ".")? IDENTIFIER "(" (Expression ("," Expression )* )? ")"
+    //stub out MethodCallExpression() to return Optional.empty() for now
+    private Optional <MethodCallExpressionNode> ParseMethodCallExpression() throws SyntaxErrorException {
+        MethodCallExpressionNode methodCallExpNode = new MethodCallExpressionNode();
+        return Optional.empty();
+    }
 
- /*
-        while(tokenManager.matchAndRemove(Token.TokenTypes.IMPLEMENTS).isPresent()){
-           String in_name = tokenManager.matchAndRemove(Token.TokenTypes.WORD).get().getValue();
-           classNode.interfaces.add(in_name);
-           if(tokenManager.matchAndRemove(Token.TokenTypes.COMMA).isPresent()){
-               classNode.interfaces.add(in_name);
-           }
+    private Optional<StatementNode> disambiguate() throws SyntaxErrorException {
+        //First call MethodCallExpression() - if there is a value, call methodCallStatementNode and return it
+        Optional <MethodCallExpressionNode> methodCallExpNode = ParseMethodCallExpression();
+        if(methodCallExpNode.isPresent()){
+            MethodCallStatementNode methodCallStmtNode = new MethodCallStatementNode(methodCallExpNode.get());
+            return Optional.of(methodCallStmtNode);
         }
-*/
+
+        //use next two tokens match
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.COMMA)){
+            Optional<MethodCallStatementNode> methodCall = ParseMethodCall();
+            if (methodCall.isEmpty()) {
+                throw new SyntaxErrorException("Expected a Method Call", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(methodCall.get());
+        }
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.ASSIGN)){
+            Optional <AssignmentNode> assnNode = ParseAssignment();
+            if (assnNode.isEmpty()) {
+                throw new SyntaxErrorException("Expected an Assignment Call", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(assnNode.get());
+        }
+
+        return Optional.empty();
+    }
+
+
+    //MethodCall = (VariableReference ( "," VariableReference )* "=")? MethodCallExpression NEWLINE
+    private Optional<MethodCallStatementNode> ParseMethodCall() throws SyntaxErrorException {
+        MethodCallStatementNode methodCSNode = new MethodCallStatementNode();
+
+        //(VariableReference ( "," VariableReference )* "=")?
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.WORD){
+            Optional <VariableReferenceNode> varRefMethodCall = ParseVariableReference();
+            if (varRefMethodCall.isEmpty()) {
+                return Optional.empty();
+            }
+            methodCSNode.returnValues.add(varRefMethodCall.get());
+            while(tokenManager.nextTwoTokensMatch(Token.TokenTypes.COMMA, Token.TokenTypes.WORD)){
+                varRefMethodCall = ParseVariableReference();
+                if (varRefMethodCall.isEmpty()) {
+                    throw new SyntaxErrorException("Expected Variable Reference after ',", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                methodCSNode.returnValues.add(varRefMethodCall.get());
+            }
+
+            //"="
+            if(tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isEmpty()){
+                throw new SyntaxErrorException("Expected '=' after variable in loop assignment", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+        }
+
+        //MethodCallExpression
+        Optional<MethodCallExpressionNode> methodCallExp = ParseMethodCallExpression();
+        if (methodCallExp.isEmpty()) {
+            throw new SyntaxErrorException("Expected a Method Call Expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+        }
+        MethodCallExpressionNode methodExprNode = methodCallExp.get();
+        methodCSNode.objectName = methodExprNode.objectName;
+        methodCSNode.methodName = methodExprNode.methodName;
+        methodCSNode.parameters = methodExprNode.parameters;
+
+        //NEWLINE
+        requireNewLine();
+
+        return Optional.of(methodCSNode);
+    }
+
+    //Assignment = VariableReference "=" Expression NEWLINE
+    private Optional<AssignmentNode> ParseAssignment() throws SyntaxErrorException {
+        AssignmentNode assignmentNode = new AssignmentNode();
+
+        //VariableReference
+        //var varRef = ParseVariableReference();
+        Optional<VariableReferenceNode> varRef = ParseVariableReference();
+        if(varRef.isEmpty()){
+            throw new SyntaxErrorException("Expected a Variable Reference", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            //return Optional.empty();
+        }
+        assignmentNode.target = varRef.get();
+
+        // "="
+        if(tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isEmpty()){
+            throw new SyntaxErrorException("Missing Assignment token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+        }
+
+        //Expression
+        Optional<ExpressionNode> assnExpression = ParseExpression();
+        if(assnExpression.isEmpty()){
+            throw new SyntaxErrorException("Expected an Expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            //return Optional.empty();
+        }
+        assignmentNode.expression = assnExpression.get();
+
+        //NEWLINE
+        requireNewLine();
+
+        return Optional.of(assignmentNode);
+    }
+
+
+
+}
