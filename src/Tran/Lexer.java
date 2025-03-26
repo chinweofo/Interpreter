@@ -95,7 +95,7 @@ public class Lexer {
             } else if (punctuationMap.containsKey(String.valueOf(c))) {
                 Token punctuationToken = readPunctuation();
                 ListOfTokens.add(punctuationToken);
-                textManager.getCharacter();
+                //textManager.getCharacter();
             } else {
                 if (Character.isLetter(c)) {
                     Token wordToken = readWord();
@@ -189,7 +189,9 @@ public class Lexer {
             char next = textManager.peekCharacter(0);
             if (Character.isDigit(next)) {
                 buildNumber.append(textManager.getCharacter());
-            } else {
+            }
+            //if next == "."
+            else {
                 break;
             }
         }
@@ -197,12 +199,34 @@ public class Lexer {
         return new Token(Token.TokenTypes.NUMBER, lineNumber, startPosition, finalNumber);
     }
 
+    //if the next character mushed with the first is part of the hashmap, then do it, if it's not,
+    //then only do the first punctuation
     private Token readPunctuation() throws Exception {
-        char c = textManager.peekCharacter(0);
-        String punctuation = String.valueOf(c);  // Convert character to string
-        if (punctuationMap.containsKey(punctuation)) {
+        int startPosition = characterPosition;
+        StringBuilder buildPunctuation = new StringBuilder();
+        char c = textManager.getCharacter(); //would be getting o.foo() -> o.f oo() otherwise
+        String punctuation = String.valueOf(c);
+        //char endCheck = textManager.peekCharacter(1);
+
+        //if the next character after c is the end of the file, then end it
+        if(!textManager.isAtEnd()){
+            char next = textManager.peekCharacter(0);
+            String nextPunctuation = String.valueOf(next);
+            String mushedPunctuation = punctuation + nextPunctuation;
+
+            if (punctuationMap.containsKey(mushedPunctuation)) {
+                next = textManager.getCharacter();
+                return new Token(punctuationMap.get(mushedPunctuation), lineNumber, characterPosition);
+            }
+            /*if(punctuationMap.containsKey(nextPunctuation)){
+                next = textManager.getCharacter();
+                return new Token(punctuationMap.get(nextPunctuation), lineNumber, characterPosition);
+            }*/
+        }
+        if(punctuationMap.containsKey(punctuation)){
             return new Token(punctuationMap.get(punctuation), lineNumber, characterPosition);
-        } else {
+        }
+        else{
             throw new SyntaxErrorException("Error: Unexpected punctuation '" + c + "'", lineNumber, characterPosition);
         }
     }
