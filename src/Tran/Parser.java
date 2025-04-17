@@ -6,6 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+/*      Questions
+* 2. Fix ParseBoolExpTerm()
+* */
 
 public class Parser {
     private final TranNode top;
@@ -94,43 +97,45 @@ public class Parser {
     //MethodHeader = IDENTIFIER "(" ParameterVariableDeclarations ")" (":" ParameterVariableDeclarations)? NEWLINE
     private Optional<MethodHeaderNode> ParseMethodHeader() throws SyntaxErrorException {
         //IDENTIFIER (method name) - "x("
-        var methodHeaderToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
-        if(methodHeaderToken.isEmpty()){
-            return Optional.empty();
-        }
-        MethodHeaderNode methodHeader = new MethodHeaderNode();
-        methodHeader.name = methodHeaderToken.get().getValue(); //gets string as a token
-
-
-        //"("
-        if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
-            throw new SyntaxErrorException("Missing left parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-        }
-
-        //ParameterVariableDeclarations
-        var paramVariableDeclarations = ParseParameterVariableDeclarations();
-
-
-        methodHeader.parameters = paramVariableDeclarations;
-        //")"
-        if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
-            throw new SyntaxErrorException("Missing right parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-        }
-
-        //":"
-        if(tokenManager.matchAndRemove(Token.TokenTypes.COLON).isPresent()){
-            paramVariableDeclarations = ParseParameterVariableDeclarations();
-            if(!paramVariableDeclarations.isEmpty()){
-                methodHeader.returns = paramVariableDeclarations;
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){
+            var methodHeaderToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+            if(methodHeaderToken.isEmpty()){
+                return Optional.empty();
             }
-            else{
-                throw new SyntaxErrorException("Expected parameter variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-            }
-        }
-        //NEWLINE
-        requireNewLine();
+            MethodHeaderNode methodHeader = new MethodHeaderNode();
+            methodHeader.name = methodHeaderToken.get().getValue(); //gets string as a token
 
-        return Optional.of(methodHeader);
+
+            //"("
+            if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing left parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+
+            //ParameterVariableDeclarations
+            var paramVariableDeclarations = ParseParameterVariableDeclarations();
+            methodHeader.parameters = paramVariableDeclarations;
+
+            //")"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing right parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+
+            //":"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.COLON).isPresent()){
+                paramVariableDeclarations = ParseParameterVariableDeclarations();
+                if(!paramVariableDeclarations.isEmpty()){
+                    methodHeader.returns = paramVariableDeclarations;
+                }
+                else{
+                    throw new SyntaxErrorException("Expected parameter variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+            }
+            //NEWLINE
+            requireNewLine();
+
+            return Optional.of(methodHeader);
+        }
+        return Optional.empty();
     }
 
     //Around 10 lines
@@ -187,7 +192,7 @@ public class Parser {
         ClassNode classNode = new ClassNode();
         classNode.name = classToken.get().getValue(); //gets string as a token
 
-        //( "implements" IDENTIFIER ( "," IDENTIFIER )* )?                                  --is this handling correct?
+        //( "implements" IDENTIFIER ( "," IDENTIFIER )* )?
         //"implements"
         if(tokenManager.matchAndRemove(Token.TokenTypes.IMPLEMENTS).isPresent()){
             String in_name = tokenManager.matchAndRemove(Token.TokenTypes.WORD).get().getValue();
@@ -205,26 +210,32 @@ public class Parser {
             throw new SyntaxErrorException("Missing Indent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
         }
         //( Constructor | MethodDeclaration | Member )*
-        while(tokenManager.peek(0).get().getType() == Token.TokenTypes.WORD || tokenManager.peek(0).get().getType() == Token.TokenTypes.CONSTRUCT){
-            if(tokenManager.peek(0).get().getType() == Token.TokenTypes.CONSTRUCT){ //peeking too much
-                classNode.constructors.add(ParseConstructor().get());
+        while(tokenManager.peek(0).get().getType() == Token.TokenTypes.WORD || tokenManager.peek(0).get().getType() == Token.TokenTypes.CONSTRUCT || tokenManager.peek(0).get().getType() == Token.TokenTypes.PRIVATE || tokenManager.peek(0).get().getType() == Token.TokenTypes.SHARED){
+            Optional <ConstructorNode> getConstruct = ParseConstructor();
+            if(getConstruct.isPresent()){
+                classNode.constructors.add(getConstruct.get());
             }
-            if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){
-                var methodDec = ParseMethodDeclaration();
-                if(methodDec.isPresent()){
-                    classNode.methods.add(methodDec.get());
-                }
+
+            Optional <MethodDeclarationNode> methodDec = ParseMethodDeclaration();
+            if(methodDec.isPresent()){
+                classNode.methods.add(methodDec.get());
             }
+
             if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.WORD)){
-                var memberDec = ParseMember();
+                Optional <MemberNode> memberDec = ParseMember();
                 if(memberDec.isPresent()){
                     classNode.members.add(memberDec.get());
                 }
             }
         }
+
+        if(!tokenManager.done() && tokenManager.peek(0).get().getType() == Token.TokenTypes.NEWLINE){
+            requireNewLine();
+        }
+
         //DEDENT
         if(tokenManager.matchAndRemove(Token.TokenTypes.DEDENT).isEmpty()){
-            throw new SyntaxErrorException("Missing Indent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            throw new SyntaxErrorException("Missing Dedent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
         }
         if(!tokenManager.done() && tokenManager.peek(0).get().getType() == Token.TokenTypes.NEWLINE){
             requireNewLine();
@@ -281,12 +292,19 @@ public class Parser {
         }
         //MethodHeader
         Optional<MethodHeaderNode> methodHeader = ParseMethodHeader();
+        /*
         if(methodHeader.isPresent()) {
             methodDec.name = methodHeader.get().name;
             methodDec.parameters = methodHeader.get().parameters;
             methodDec.returns = methodHeader.get().returns;
+        }*/
+        if(methodHeader.isEmpty()){
+            return Optional.empty();
         }
-        //methodDec.name = methodHeader.get().name;
+        methodDec.name = methodHeader.get().name;
+        methodDec.parameters = methodHeader.get().parameters;
+        methodDec.returns = methodHeader.get().returns;
+
 
         //NEWLINE
         //requireNewLine();
@@ -309,17 +327,20 @@ public class Parser {
         if(tokenManager.matchAndRemove(Token.TokenTypes.INDENT).isEmpty()){
             throw new SyntaxErrorException("Missing Indent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
         }
-        //(VariableDeclarations)*                                                                   -- is this correct?
+        //(VariableDeclarations)*
         Optional<VariableDeclarationNode> newVarDec = ParseVariableDeclarations();
         while (newVarDec.isPresent()) {
             methodDec.locals.add(newVarDec.get());
             newVarDec = ParseVariableDeclarations();  //Keep parsing until no more variables are found
         }
 
-        //Statement*                                                                                -- is this correct?
+        //Statement*
         Optional<StatementNode> methodStatement = ParseStatement();
         while (methodStatement.isPresent()) {
             methodDec.statements.add(methodStatement.get());
+            if(!tokenManager.done() && tokenManager.peek(0).get().getType() == Token.TokenTypes.NEWLINE){
+                requireNewLine();
+            }
             methodStatement = ParseStatement();  //Keep parsing until no more statements are found
         }
         //DEDENT
@@ -343,7 +364,11 @@ public class Parser {
             //add to list of statements
             methodStatementList.add(newStatement.get());
             newStatement = ParseStatement();
+            if(!tokenManager.done() && tokenManager.peek(0).get().getType() == Token.TokenTypes.NEWLINE){
+                requireNewLine();
+            }
         }
+
         //DEDENT
         if(tokenManager.matchAndRemove(Token.TokenTypes.DEDENT).isEmpty()){
             throw new SyntaxErrorException("Missing Dedent Token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
@@ -353,7 +378,6 @@ public class Parser {
 
     //Around 5 lines
     //Statement = If | Loop | MethodCall | Assignment
-    //should I make this private void instead of StatementNode?
     private Optional <StatementNode> ParseStatement() throws SyntaxErrorException {
         //If
         if(tokenManager.peek(0).get().getType() == Token.TokenTypes.IF){
@@ -453,7 +477,7 @@ public class Parser {
         return Optional.of(loopNode);
     }
 
-    //Around 30 lines
+    //Around 30 lines - ExpressionNode here is good
     //BoolExpTerm = MethodCallExpression | (Expression ( "==" | "!=" | "<=" | ">=" | ">" | "<" ) Expression) | VariableReference
     private Optional <ExpressionNode> ParseBoolExpTerm() throws SyntaxErrorException {
         //MethodCallExpression
@@ -477,18 +501,23 @@ public class Parser {
                 //"=="
                 case EQUAL:
                     op = CompareNode.CompareOperations.eq;
+                    break;
                 //"!="
                 case NOTEQUAL:
                     op = CompareNode.CompareOperations.ne;
+                    break;
                 // "<="
                 case LESSTHANEQUAL:
                     op = CompareNode.CompareOperations.le;
+                    break;
                 //">="
                 case GREATERTHANEQUAL:
                     op = CompareNode.CompareOperations.ge;
+                    break;
                 //"<"
                 case LESSTHAN:
                     op = CompareNode.CompareOperations.lt;
+                    break;
                 //">"
                 case GREATERTHAN:
                     op = CompareNode.CompareOperations.gt;
@@ -603,21 +632,101 @@ public class Parser {
         return Optional.of(varDecNode);
     }
 
+    //About 13 lines
     //Expression = Term ( ("+"|"-") Term )*
     private Optional <ExpressionNode> ParseExpression() throws SyntaxErrorException {
-        //ExpressionNode expressionNode = new ExpressionNode();
-        //ExpressionNode expressionNode = null;
-        var expNode = ParseVariableReference().get();
-        return Optional.of(expNode);
+        //var expNode = ParseVariableReference().get();
+        MathOpNode mathOpNode = new MathOpNode();
+
+        //Term
+        Optional<ExpressionNode> expTermLeft = ParseTerm();
+        if (expTermLeft.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Optional <Token> peekType = tokenManager.peek(0);
+        while (peekType.isPresent()) {
+            Token.TokenTypes tokenType = peekType.get().getType();
+            MathOpNode.MathOperations op = null;
+
+            //("+"| "-")
+            switch(tokenType){
+                //"+"
+                case PLUS:
+                    op = MathOpNode.MathOperations.add;
+                    break;
+                case MINUS:
+                    op = MathOpNode.MathOperations.subtract;
+            }
+            if(op != null){
+                tokenManager.matchAndRemove(tokenType);
+                //Term
+                var expTermRight = ParseTerm();
+                if(expTermRight.isEmpty()){
+                    throw new SyntaxErrorException("Expected right side of the expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                mathOpNode.op = op;
+                mathOpNode.left = expTermLeft.get();
+                mathOpNode.right = expTermRight.get();
+
+                return Optional.of(mathOpNode);
+            }
+            return Optional.of(expTermLeft.get());
+        }
+        return Optional.of(expTermLeft.get());
     }
 
                                                     /* Parser 3*/
 
     //MethodCallExpression =  (IDENTIFIER ".")? IDENTIFIER "(" (Expression ("," Expression )* )? ")"
-    //stub out MethodCallExpression() to return Optional.empty() for now
     private Optional <MethodCallExpressionNode> ParseMethodCallExpression() throws SyntaxErrorException {
-        MethodCallExpressionNode methodCallExpNode = new MethodCallExpressionNode();
-        return Optional.empty();
+        MethodCallExpressionNode mceNode = new MethodCallExpressionNode();
+
+        //(IDENTIFIER ".")?
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.DOT)){
+            var mceObjectName = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+            if(mceObjectName.isEmpty()){
+                return Optional.empty();
+            }
+            var mceDotRemove = tokenManager.matchAndRemove(Token.TokenTypes.DOT);
+            if(mceDotRemove.isEmpty()){
+                return Optional.empty();
+            }
+            mceNode.objectName = Optional.of(mceObjectName.get().getValue());
+        }
+
+        //IDENTIFIER
+        if(!tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){//mceMethodName.isEmpty()
+            return Optional.empty();
+        }
+        var mceMethodName = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+
+        mceNode.methodName = mceMethodName.get().getValue(); //gets string as a token
+
+        //"("
+        if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
+            throw new SyntaxErrorException("Missing left parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+        }
+
+        //(Expression ("," Expression )* )?
+        Optional<ExpressionNode> assnExpression = ParseExpression();
+        if (assnExpression.isPresent()) {
+            mceNode.parameters.add(assnExpression.get());
+            while(tokenManager.matchAndRemove(Token.TokenTypes.COMMA).isPresent()){
+                assnExpression = ParseExpression();
+                if(assnExpression.isEmpty()){
+                    throw new SyntaxErrorException("Expected expression after comma", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                mceNode.parameters.add(assnExpression.get());
+            }
+        }
+
+        //")"
+        if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
+            throw new SyntaxErrorException("Missing right parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+        }
+
+        return Optional.of(mceNode);
     }
 
     private Optional<StatementNode> disambiguate() throws SyntaxErrorException {
@@ -636,6 +745,7 @@ public class Parser {
             }
             return Optional.of(methodCall.get());
         }
+
         if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.ASSIGN)){
             Optional <AssignmentNode> assnNode = ParseAssignment();
             if (assnNode.isEmpty()) {
@@ -659,13 +769,18 @@ public class Parser {
                 return Optional.empty();
             }
             methodCSNode.returnValues.add(varRefMethodCall.get());
-            while(tokenManager.nextTwoTokensMatch(Token.TokenTypes.COMMA, Token.TokenTypes.WORD)){
+            while (tokenManager.matchAndRemove(Token.TokenTypes.COMMA).isPresent()) {
                 varRefMethodCall = ParseVariableReference();
-                if (varRefMethodCall.isEmpty()) {
-                    throw new SyntaxErrorException("Expected Variable Reference after ',", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-                }
                 methodCSNode.returnValues.add(varRefMethodCall.get());
             }
+
+            /*while(tokenManager.nextTwoTokensMatch(Token.TokenTypes.COMMA, Token.TokenTypes.WORD)){
+                varRefMethodCall = ParseVariableReference();
+                if (varRefMethodCall.isEmpty()) {
+                    throw new SyntaxErrorException("Expected Variable Reference after ','", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                methodCSNode.returnValues.add(varRefMethodCall.get());
+            }*/
 
             //"="
             if(tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isEmpty()){
@@ -721,6 +836,171 @@ public class Parser {
         return Optional.of(assignmentNode);
     }
 
+                                                 /* Parser 4 */
+
+    //both Term and Factor are <ExpressionNode>
+
+    //Term = Factor ( ("*"|"/"|"%") Factor )* - uses MathOpNode
+    private Optional<ExpressionNode> ParseTerm() throws SyntaxErrorException {
+        MathOpNode mathOpNode = new MathOpNode();
+
+        //Factor
+        Optional<ExpressionNode> termFactorLeft = ParseFactor();
+        if (termFactorLeft.isEmpty()) {
+            return Optional.empty();
+        }
+        mathOpNode.left = termFactorLeft.get();
+
+        Optional<Token> peekType = tokenManager.peek(0);
+
+        while (peekType.isPresent()) {
+            MathOpNode.MathOperations op = null;
+            Token.TokenTypes tokenType = peekType.get().getType();
+            //("*"| "-/"|"%")
+            switch(tokenType){
+                //"*"
+                case TIMES:
+                    op = MathOpNode.MathOperations.multiply;
+                    break;
+                //"/"
+                case DIVIDE:
+                    op = MathOpNode.MathOperations.divide;
+                    break;
+                //"%"
+                case MODULO:
+                    op = MathOpNode.MathOperations.modulo;
+            }
+
+            if(op != null){
+                tokenManager.matchAndRemove(tokenType);
+                //Term
+                var termFactorRight = ParseFactor();
+                if(termFactorRight.isEmpty()){
+                    throw new SyntaxErrorException("Expected right side of the expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+                mathOpNode.op = op;
+                mathOpNode.left = termFactorLeft.get();
+                mathOpNode.right = termFactorRight.get();
+
+                return Optional.of(mathOpNode);
+            }
+            return Optional.of(termFactorLeft.get());
+        }
+        return Optional.of(termFactorLeft.get());
+    }
+
+    //About 54 lines
+    //Factor = NUMBER | VariableReference |  STRINGLITERAL | CHARACTERLITERAL | MethodCallExpression | "(" Expression ")" | "new" IDENTIFIER "(" (Expression ("," Expression )*)? ")"
+    private Optional<ExpressionNode> ParseFactor() throws SyntaxErrorException {
+        //NUMBER
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.NUMBER){
+            NumericLiteralNode numLitNode = new NumericLiteralNode();
+            var currentNum = tokenManager.matchAndRemove(Token.TokenTypes.NUMBER);
+            if(currentNum.isEmpty()){
+                throw new SyntaxErrorException("Expected a Number", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            numLitNode.value = Float.parseFloat(currentNum.get().getValue());
+            return Optional.of(numLitNode);
+        }
+
+
+
+        //STRINGLITERAL
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.QUOTEDSTRING){
+            StringLiteralNode strLitNode = new StringLiteralNode();
+            var currentStr = tokenManager.matchAndRemove(Token.TokenTypes.QUOTEDSTRING);
+            if(currentStr.isEmpty()){
+                throw new SyntaxErrorException("Expected a string", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            strLitNode.value = currentStr.get().getValue();
+            return Optional.of(strLitNode);
+        }
+
+        //CHARACTERLITERAL
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.QUOTEDCHARACTER){
+            CharLiteralNode charLitNode = new CharLiteralNode();
+            var currentChar = tokenManager.matchAndRemove(Token.TokenTypes.QUOTEDCHARACTER);
+            if(currentChar.isEmpty()){
+                throw new SyntaxErrorException("Expected a character", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            charLitNode.value = currentChar.get().getValue().charAt(0);
+            return Optional.of(charLitNode);
+        }
+
+        //MethodCallExpression
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.DOT) || tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){
+            var methodCallExp = ParseMethodCallExpression();
+            if(methodCallExp.isEmpty()){
+                throw new SyntaxErrorException("Expected a Method Call Expression", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(methodCallExp.get());
+        }
+
+        //"(" Expression ")"
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.LPAREN){
+            //"("
+            if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing left parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            //Expression
+            Optional<ExpressionNode> boolExpLeft = ParseExpression();
+            if(boolExpLeft.isEmpty()){
+                throw new SyntaxErrorException("Expected boolean expression in loop", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            //")"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing right parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(boolExpLeft.get());
+        }
+
+        //VariableReference - MOVE BEFORE EXPRESSION TOO - try
+        if(tokenManager.peek(0).get().getType() == Token.TokenTypes.WORD){
+            Optional <VariableReferenceNode> varRefNode = ParseVariableReference();
+            if (varRefNode.isEmpty()) {
+                throw new SyntaxErrorException("Expected a variable reference", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(varRefNode.get());
+        }
+
+        //"new" IDENTIFIER "(" (Expression ("," Expression )*)? ")"
+        //"new"
+        if(tokenManager.matchAndRemove(Token.TokenTypes.NEW).isPresent()){
+            NewNode newNode = new NewNode();
+            //IDENTIFIER
+            var newIdentifier = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+            if(newIdentifier.isEmpty()){
+                return Optional.empty();
+            }
+            newNode.className = newIdentifier.get().getValue();
+
+            //"("
+            if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing left parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+
+            //(Expression ("," Expression)*)?
+            Optional<ExpressionNode> expr = ParseExpression();
+            if (expr.isPresent()) {
+                newNode.parameters.add(expr.get());
+                while(tokenManager.matchAndRemove(Token.TokenTypes.COMMA).isPresent()){
+                    expr = ParseExpression();
+                    if(expr.isEmpty()){
+                        throw new SyntaxErrorException("Expected expression after comma", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                    }
+                    newNode.parameters.add(expr.get());
+                }
+            }
+
+            //")"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing right parenthesis", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+            return Optional.of(newNode);
+        }
+
+        return Optional.empty();
+    }
 
 
 }
