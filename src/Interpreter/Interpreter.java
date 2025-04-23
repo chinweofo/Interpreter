@@ -5,19 +5,6 @@ import com.sun.jdi.IntegerType;
 
 import java.util.*;
 
-/*      Questions
- * 2. interpretStatementBlock()
- *before interpretetStamenet block, make sure returns are instantiated in in wahtever hashmap goes into stamenetblock
- * */
-
-/*      To Fix
-* 1. interpretStatementBlock()
-* 2. evaluate() - MethodCallStatementNode
-*
-*
-*
-* */
-
 public class Interpreter {
 
 
