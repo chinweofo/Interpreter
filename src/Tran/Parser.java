@@ -6,7 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-
+/*      Questions
+* 2. Fix ParseBoolExpTerm()
+* */
 
 public class Parser {
     private final TranNode top;
@@ -667,6 +669,27 @@ public class Parser {
                 mathOpNode.left = expTermLeft.get();
                 mathOpNode.right = expTermRight.get();
 
+                peekType = tokenManager.peek(0);
+                if(peekType.get().getType() == Token.TokenTypes.PLUS || peekType.get().getType() == Token.TokenTypes.MINUS) {
+                    Token.TokenTypes tokenType2 = peekType.get().getType();
+                    MathOpNode.MathOperations op2 = null;
+                    MathOpNode newMathOpNode2 = new MathOpNode();
+                    switch(tokenType2){
+                        //"+"
+                        case PLUS:
+                            op2 = MathOpNode.MathOperations.add;
+                            break;
+                        case MINUS:
+                            op2 = MathOpNode.MathOperations.subtract;
+                    }
+                    tokenManager.matchAndRemove(tokenType2);
+                    newMathOpNode2.op = op2;
+                    newMathOpNode2.left = mathOpNode;
+                    newMathOpNode2.right = ParseTerm().get();
+
+                    return Optional.of(newMathOpNode2);
+                }
+
                 return Optional.of(mathOpNode);
             }
             return Optional.of(expTermLeft.get());
@@ -691,6 +714,9 @@ public class Parser {
                 return Optional.empty();
             }
             mceNode.objectName = Optional.of(mceObjectName.get().getValue());
+        }
+        else{
+            mceNode.objectName = Optional.empty();
         }
 
         //IDENTIFIER
@@ -880,6 +906,32 @@ public class Parser {
                 mathOpNode.left = termFactorLeft.get();
                 mathOpNode.right = termFactorRight.get();
 
+                peekType = tokenManager.peek(0);
+                if(peekType.get().getType() == Token.TokenTypes.TIMES || peekType.get().getType() == Token.TokenTypes.MODULO || peekType.get().getType() == Token.TokenTypes.DIVIDE) {
+                    Token.TokenTypes tokenType2 = peekType.get().getType();
+                    MathOpNode.MathOperations op2 = null;
+                    MathOpNode newMathOpNode2 = new MathOpNode();
+                    switch(tokenType2){
+                        //"*"
+                        case TIMES:
+                            op2 = MathOpNode.MathOperations.multiply;
+                            break;
+                        //"/"
+                        case DIVIDE:
+                            op2 = MathOpNode.MathOperations.divide;
+                            break;
+                        //"%"
+                        case MODULO:
+                            op2 = MathOpNode.MathOperations.modulo;
+                    }
+                    tokenManager.matchAndRemove(tokenType2);
+                    newMathOpNode2.op = op2;
+                    newMathOpNode2.left = mathOpNode;
+                    newMathOpNode2.right = ParseFactor().get();
+
+                    return Optional.of(newMathOpNode2);
+                }
+
                 return Optional.of(mathOpNode);
             }
             return Optional.of(termFactorLeft.get());
@@ -1002,3 +1054,64 @@ public class Parser {
 
 
 }
+/*
+
+Assignment 6
+
+MethodCallExpression() : 30 lines
+Expression(): 13 lines
+Term(): 15 lines
+Factor() : 54 lines
+
+
+
+private Optional<MethodHeaderNode> ParseMethodHeader() throws SyntaxErrorException {
+        //IDENTIFIER (method name) - "x("
+        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){
+            var methodHeaderToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
+            if(methodHeaderToken.isEmpty()){
+                return Optional.empty();
+            }
+            MethodHeaderNode methodHeader = new MethodHeaderNode();
+            methodHeader.name = methodHeaderToken.get().getValue(); //gets string as a token
+
+
+            //"("
+            if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing left parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+
+            //ParameterVariableDeclarations
+            var paramVariableDeclarations = ParseParameterVariableDeclarations();
+            methodHeader.parameters = paramVariableDeclarations;
+
+            //")"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
+                throw new SyntaxErrorException("Missing right parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+            }
+
+            //":"
+            if(tokenManager.matchAndRemove(Token.TokenTypes.COLON).isPresent()){
+                paramVariableDeclarations = ParseParameterVariableDeclarations();
+                if(!paramVariableDeclarations.isEmpty()){
+                    methodHeader.returns = paramVariableDeclarations;
+                }
+                else{
+                    throw new SyntaxErrorException("Expected parameter variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
+                }
+            }
+            //NEWLINE
+            requireNewLine();
+
+            return Optional.of(methodHeader);
+        }
+        return Optional.empty();
+    }
+
+
+
+
+
+
+* */
+
