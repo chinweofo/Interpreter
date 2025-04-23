@@ -6,9 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/*      Questions
-* 2. Fix ParseBoolExpTerm()
-* */
+
 
 public class Parser {
     private final TranNode top;
@@ -292,12 +290,7 @@ public class Parser {
         }
         //MethodHeader
         Optional<MethodHeaderNode> methodHeader = ParseMethodHeader();
-        /*
-        if(methodHeader.isPresent()) {
-            methodDec.name = methodHeader.get().name;
-            methodDec.parameters = methodHeader.get().parameters;
-            methodDec.returns = methodHeader.get().returns;
-        }*/
+
         if(methodHeader.isEmpty()){
             return Optional.empty();
         }
@@ -798,14 +791,6 @@ public class Parser {
                 methodCSNode.returnValues.add(varRefMethodCall.get());
             }
 
-            /*while(tokenManager.nextTwoTokensMatch(Token.TokenTypes.COMMA, Token.TokenTypes.WORD)){
-                varRefMethodCall = ParseVariableReference();
-                if (varRefMethodCall.isEmpty()) {
-                    throw new SyntaxErrorException("Expected Variable Reference after ','", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-                }
-                methodCSNode.returnValues.add(varRefMethodCall.get());
-            }*/
-
             //"="
             if(tokenManager.matchAndRemove(Token.TokenTypes.ASSIGN).isEmpty()){
                 throw new SyntaxErrorException("Expected '=' after variable in loop assignment", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
@@ -1054,64 +1039,3 @@ public class Parser {
 
 
 }
-/*
-
-Assignment 6
-
-MethodCallExpression() : 30 lines
-Expression(): 13 lines
-Term(): 15 lines
-Factor() : 54 lines
-
-
-
-private Optional<MethodHeaderNode> ParseMethodHeader() throws SyntaxErrorException {
-        //IDENTIFIER (method name) - "x("
-        if(tokenManager.nextTwoTokensMatch(Token.TokenTypes.WORD, Token.TokenTypes.LPAREN)){
-            var methodHeaderToken = tokenManager.matchAndRemove(Token.TokenTypes.WORD);
-            if(methodHeaderToken.isEmpty()){
-                return Optional.empty();
-            }
-            MethodHeaderNode methodHeader = new MethodHeaderNode();
-            methodHeader.name = methodHeaderToken.get().getValue(); //gets string as a token
-
-
-            //"("
-            if(tokenManager.matchAndRemove(Token.TokenTypes.LPAREN).isEmpty()){
-                throw new SyntaxErrorException("Missing left parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-            }
-
-            //ParameterVariableDeclarations
-            var paramVariableDeclarations = ParseParameterVariableDeclarations();
-            methodHeader.parameters = paramVariableDeclarations;
-
-            //")"
-            if(tokenManager.matchAndRemove(Token.TokenTypes.RPAREN).isEmpty()){
-                throw new SyntaxErrorException("Missing right parenthesis token", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-            }
-
-            //":"
-            if(tokenManager.matchAndRemove(Token.TokenTypes.COLON).isPresent()){
-                paramVariableDeclarations = ParseParameterVariableDeclarations();
-                if(!paramVariableDeclarations.isEmpty()){
-                    methodHeader.returns = paramVariableDeclarations;
-                }
-                else{
-                    throw new SyntaxErrorException("Expected parameter variable declaration", tokenManager.getCurrentLine(), tokenManager.getCurrentColumnNumber());
-                }
-            }
-            //NEWLINE
-            requireNewLine();
-
-            return Optional.of(methodHeader);
-        }
-        return Optional.empty();
-    }
-
-
-
-
-
-
-* */
-
