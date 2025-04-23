@@ -3,6 +3,7 @@ package Tran;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 
 public class Lexer {
     private final TextManager textManager;
@@ -92,10 +93,6 @@ public class Lexer {
                 if (textManager.isAtEnd()) {
                     throw new SyntaxErrorException("Error: Unclosed comment", lineNumber, characterPosition);
                 }
-            } else if (punctuationMap.containsKey(String.valueOf(c))) {
-                Token punctuationToken = readPunctuation();
-                ListOfTokens.add(punctuationToken);
-                //textManager.getCharacter();
             } else {
                 if (Character.isLetter(c)) {
                     Token wordToken = readWord();
@@ -103,8 +100,11 @@ public class Lexer {
                 } else if (Character.isDigit(c)) {
                     Token numberToken = readNumber();
                     ListOfTokens.add(numberToken);
-                } else {
-                    throw new SyntaxErrorException("Error: Unexpected character '" + c + "'", lineNumber, characterPosition);
+                } else{
+                    //Optional <Token> wordToken = Optional.of(readPunctuation());
+                    Token punctuationToken = readPunctuation();
+                    ListOfTokens.add(punctuationToken);
+
                 }
             }
         }
@@ -158,7 +158,6 @@ public class Lexer {
             currentIndentation--;
 
         }
-        //currentIndentLevel = newIndentLevel;
     }
 
     private Token readWord() throws Exception {
@@ -189,8 +188,13 @@ public class Lexer {
             char next = textManager.peekCharacter(0);
             if (Character.isDigit(next)) {
                 buildNumber.append(textManager.getCharacter());
+                next = textManager.peekCharacter(0);
             }
-            //if next == "."
+            else if(next == '.'){
+                buildNumber.append(textManager.getCharacter());
+                next = textManager.peekCharacter(0);
+
+            }
             else {
                 break;
             }
